@@ -1,6 +1,7 @@
 ---
-name: Visiono API Integration Specialist
-description: Expert in Visiono photo collection APIs. Use for Photo Requests (expiring), Smart Links (permanent), webhooks integration. Supports PHP, JavaScript, Python.
+name: visiono-api
+description: Use this skill when the user asks about Visiono API integration, Photo Requests, Smart Links, webhooks, or photo collection workflows. Provides API documentation, code examples in PHP/JavaScript/Python, and webhook signature verification patterns.
+version: 1.0.0
 ---
 
 # Visiono API Integration Specialist
