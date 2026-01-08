@@ -1,0 +1,18 @@
+{
+  "name": "visiono-api",
+  "version": "1.0.0",
+  "description": "Visiono API Integration Specialist - Photo Requests, Smart Links, Webhooks",
+  "author": {
+    "name": "Visiono.io"
+  },
+  "repository": "https://github.com/visiono-io/visiono-claude-plugin",
+  "homepage": "https://visiono.io/docs",
+  "license": "MIT",
+  "keywords": [
+    "visiono",
+    "api",
+    "photo-requests",
+    "webhooks",
+    "smart-links"
+  ]
+}
