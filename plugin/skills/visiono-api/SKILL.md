@@ -1,7 +1,7 @@
 ---
 name: visiono-api
-description: Use this skill when the user asks about Visiono API integration, Photo Requests, Smart Links, webhooks, or photo collection workflows. Provides API documentation, code examples in PHP/JavaScript/Python, and webhook signature verification patterns.
-version: 1.0.0
+description: Use this skill when the user asks about Visiono API integration, Photo Requests, Smart Links, Workflow Mode, webhooks, or photo collection workflows. Provides API documentation, code examples in PHP/JavaScript/Python, webhook signature verification, and Workflow Mode signed URL generation patterns.
+version: 1.1.0
 ---
 
 # Visiono API Integration Specialist
@@ -244,6 +244,269 @@ for (const sub of data.submissions) {
   }
 }
 ```
+
+---
+
+## Workflow Mode
+
+Workflow Mode allows external systems to embed Visiono photo collection into their processes using **HMAC-signed URLs**. When enabled on a Smart Link, direct access is blocked - all access requires signed URLs.
+
+> ⚠️ **Important**: When Workflow Mode is enabled, the link can NO LONGER be shared directly. Users opening the link without valid signed parameters will see an error page.
+
+### How It Works
+
+1. **Your system** generates a signed URL with parameters
+2. **User** opens the signed URL
+3. **Visiono** validates signature and shows upload interface
+4. **User** uploads photos
+5. **Visiono** redirects back to your callback URL with signed data
+6. **Your system** verifies the return signature
+
+### Input URL Parameters (to Visiono)
+
+| Param | Description | Required |
+|-------|-------------|----------|
+| `uv` | Unique value (e.g., order ID, ticket number) | Yes |
+| `src` | Source system identifier (e.g., "zendesk", "crm") | Yes |
+| `ref` | External reference (e.g., ticket-456) | Yes |
+| `ts` | Unix timestamp (seconds) | Yes |
+| `sig` | HMAC-SHA256 signature | Yes |
+
+### Input Signature Algorithm
+
+```
+payload = "{uv}|{src}|{ref}|{ts}"
+signature = HMAC-SHA256(payload, workflow_secret)
+```
+
+### Generate Signed URL - PHP
+
+```php
+$workflowSecret = 'your-64-char-workflow-secret';
+$slug = 'damage-report';
+
+$uniqueValue = 'ABC123';
+$source = 'zendesk';
+$reference = 'ticket-456';
+$timestamp = time();
+
+// Generate signature
+$payload = "{$uniqueValue}|{$source}|{$reference}|{$timestamp}";
+$signature = hash_hmac('sha256', $payload, $workflowSecret);
+
+// Build URL
+$baseUrl = "https://visiono.io/s/{$slug}";
+$params = http_build_query([
+    'uv' => $uniqueValue,
+    'src' => $source,
+    'ref' => $reference,
+    'ts' => $timestamp,
+    'sig' => $signature,
+]);
+
+$url = "{$baseUrl}?{$params}";
+// https://visiono.io/s/damage-report?uv=ABC123&src=zendesk&ref=ticket-456&ts=1705500000&sig=abc123...
+```
+
+### Generate Signed URL - JavaScript
+
+```javascript
+const crypto = require('crypto');
+
+const workflowSecret = 'your-64-char-workflow-secret';
+const slug = 'damage-report';
+
+const uniqueValue = 'ABC123';
+const source = 'zendesk';
+const reference = 'ticket-456';
+const timestamp = Math.floor(Date.now() / 1000);
+
+// Generate signature
+const payload = `${uniqueValue}|${source}|${reference}|${timestamp}`;
+const signature = crypto
+  .createHmac('sha256', workflowSecret)
+  .update(payload)
+  .digest('hex');
+
+// Build URL
+const params = new URLSearchParams({
+  uv: uniqueValue,
+  src: source,
+  ref: reference,
+  ts: timestamp,
+  sig: signature,
+});
+
+const url = `https://visiono.io/s/${slug}?${params}`;
+```
+
+### Generate Signed URL - Python
+
+```python
+import hmac
+import hashlib
+import time
+from urllib.parse import urlencode
+
+workflow_secret = 'your-64-char-workflow-secret'
+slug = 'damage-report'
+
+unique_value = 'ABC123'
+source = 'zendesk'
+reference = 'ticket-456'
+timestamp = int(time.time())
+
+# Generate signature
+payload = f"{unique_value}|{source}|{reference}|{timestamp}"
+signature = hmac.new(
+    workflow_secret.encode(),
+    payload.encode(),
+    hashlib.sha256
+).hexdigest()
+
+# Build URL
+params = urlencode({
+    'uv': unique_value,
+    'src': source,
+    'ref': reference,
+    'ts': timestamp,
+    'sig': signature,
+})
+
+url = f"https://visiono.io/s/{slug}?{params}"
+```
+
+### Output URL Parameters (from Visiono redirect)
+
+When the user completes the upload, Visiono redirects to your configured callback URL with these parameters:
+
+| Param | Description |
+|-------|-------------|
+| `sub` | Submission ID (e.g., `pls_123`) |
+| `uv` | Unique value (echoed back) |
+| `ref` | Reference (echoed back) |
+| `cnt` | Number of photos uploaded |
+| `ts` | Timestamp of completion |
+| `sig` | Return signature for verification |
+
+### Return Signature Algorithm
+
+```
+payload = "{submission_id}|{unique_value}|{reference}|{photo_count}|{timestamp}"
+signature = HMAC-SHA256(payload, workflow_secret)
+```
+
+### Verify Return Signature - PHP
+
+```php
+$workflowSecret = 'your-64-char-workflow-secret';
+
+// Get parameters from redirect
+$submissionId = $_GET['sub'];
+$uniqueValue = $_GET['uv'];
+$reference = $_GET['ref'];
+$photoCount = $_GET['cnt'];
+$timestamp = $_GET['ts'];
+$receivedSignature = $_GET['sig'];
+
+// Verify signature
+$payload = "{$submissionId}|{$uniqueValue}|{$reference}|{$photoCount}|{$timestamp}";
+$expectedSignature = hash_hmac('sha256', $payload, $workflowSecret);
+
+if (hash_equals($expectedSignature, $receivedSignature)) {
+    // ✅ Signature valid - process the submission
+    echo "Photos submitted successfully!";
+} else {
+    // ❌ Signature invalid - reject
+    http_response_code(400);
+    echo "Invalid signature";
+}
+```
+
+### Verify Return Signature - JavaScript
+
+```javascript
+const crypto = require('crypto');
+
+function verifyRedirectSignature(params, workflowSecret) {
+  const { sub, uv, ref, cnt, ts, sig } = params;
+
+  const payload = `${sub}|${uv}|${ref}|${cnt}|${ts}`;
+  const expected = crypto
+    .createHmac('sha256', workflowSecret)
+    .update(payload)
+    .digest('hex');
+
+  return crypto.timingSafeEqual(
+    Buffer.from(sig),
+    Buffer.from(expected)
+  );
+}
+```
+
+### Verify Return Signature - Python
+
+```python
+import hmac
+import hashlib
+
+def verify_redirect_signature(params, workflow_secret):
+    payload = f"{params['sub']}|{params['uv']}|{params['ref']}|{params['cnt']}|{params['ts']}"
+    expected = hmac.new(
+        workflow_secret.encode(),
+        payload.encode(),
+        hashlib.sha256
+    ).hexdigest()
+
+    return hmac.compare_digest(expected, params['sig'])
+```
+
+### Link Expiration
+
+Signed URLs expire after **1 hour** by default. This prevents:
+- Old links from being reused
+- Replay attacks
+- Stale data
+
+### Error Pages
+
+Users may see error pages when:
+
+| Error | Cause | Solution |
+|-------|-------|----------|
+| Missing Parameters | URL lacks required params | Check URL generation |
+| Invalid Signature | Signature doesn't match | Verify secret and algorithm |
+| Link Expired | Timestamp > 1 hour old | Generate new signed URL |
+
+### Workflow Mode + Webhooks
+
+When using Workflow Mode, the `submission.created` webhook payload includes external tracking fields:
+
+```json
+{
+  "event": "submission.created",
+  "data": {
+    "photo_request": {
+      "id": "sl_123",
+      "custom_slug": "damage-report"
+    },
+    "permanent_link_submission": {
+      "id": "pls_456",
+      "unique_field_value": "ABC123",
+      "external_source": "zendesk",
+      "external_reference": "ticket-456"
+    }
+  }
+}
+```
+
+### Workflow Mode Best Practices
+
+1. **Store secret securely** - Use environment variables, never client-side code
+2. **Verify all signatures** - Always validate return signatures
+3. **Use HTTPS** - All URLs should be secure
+4. **Regenerate secrets** - If compromised, regenerate in Visiono dashboard
+5. **Handle expiration** - Generate fresh URLs for each request
 
 ---
 
@@ -578,6 +841,7 @@ async function storeWebhookEvent(event) {
 
 ## Integration Guides Available
 
+- Workflow Mode: `/docs/integrations/workflow-mode` ⭐ NEW
 - Zapier: `/docs/integrations/zapier`
 - Make: `/docs/integrations/make`
 - n8n: `/docs/integrations/n8n`
